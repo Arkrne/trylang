@@ -64,13 +64,10 @@
             <p class="text-slate-500 dark:text-slate-400">Smart Energy Monitor & Control Panel</p>
         </header>
 
-        <!-- MODIFICATION: Added a prominent warning area for Bluetooth issues -->
         <div id="bluetoothWarning" class="hidden p-4 mb-4 text-sm text-red-700 bg-red-100 rounded-lg dark:bg-red-200 dark:text-red-800" role="alert">
-            <!-- Warning message will be inserted here by JavaScript -->
         </div>
 
         <main class="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <!-- ===== Left Column: Controls ===== -->
             <div class="flex flex-col gap-6">
                 <div class="bg-slate-100 dark:bg-slate-900/50 p-4 rounded-lg">
                     <h2 class="text-xl font-bold mb-2">📡 Connection</h2>
@@ -103,12 +100,10 @@
                 </div>
             </div>
 
-            <!-- ===== Right Column: Data ===== -->
             <div class="lg:col-span-1 flex flex-col gap-6">
                  <div class="bg-slate-100 dark:bg-slate-900/50 p-4 rounded-lg">
                     <h2 class="text-xl font-bold mb-2">🔔 Live Notifications</h2>
                     <div id="notificationsList" class="h-48 overflow-y-auto flex flex-col-reverse">
-                       <!-- Notifications will be added here -->
                     </div>
                 </div>
             </div>
@@ -116,13 +111,11 @@
     </div>
 
 <script>
-    // --- State and Variables ---
     let bleDevice = null;
     let bleCharacteristic = null;
     let schedules = JSON.parse(localStorage.getItem('vanilla_schedules_v3') || '[]');
     let timeSyncInterval = null;
 
-    // --- DOM Elements ---
     const connectBtn = document.getElementById('connectBtn');
     const statusDiv = document.getElementById('status');
     const addScheduleBtn = document.getElementById('addScheduleBtn');
@@ -132,17 +125,13 @@
     const notificationsListDiv = document.getElementById('notificationsList');
     const bluetoothWarningDiv = document.getElementById('bluetoothWarning');
 
-    // --- Event Listeners ---
     document.addEventListener('DOMContentLoaded', () => {
-        checkBluetoothSupport(); // Check for Bluetooth support on page load
+        checkBluetoothSupport();
         connectBtn.addEventListener('click', onConnectButtonClick);
         addScheduleBtn.addEventListener('click', onAddScheduleClick);
         renderSchedules();
     });
 
-    // --- Core Bluetooth Logic ---
-
-    // MODIFICATION: Added a function to check for Bluetooth support upfront.
     function checkBluetoothSupport() {
         if (!navigator.bluetooth) {
             bluetoothWarningDiv.textContent = 'Web Bluetooth is not supported in this browser. Please use Chrome on a desktop or Android device.';
@@ -160,41 +149,31 @@
             addNotification('Web Bluetooth is not supported on this browser.', 'error');
             return;
         }
-
         setButtonLoading(connectBtn, true);
-
         try {
             const serviceUUID = '0000ffe0-0000-1000-8000-00805f9b34fb';
             const characteristicUUID = '0000ffe1-0000-1000-8000-00805f9b34fb';
-
             bleDevice = await navigator.bluetooth.requestDevice({
                 filters: [{ services: [serviceUUID] }],
                 optionalServices: [serviceUUID]
             });
-
             bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
             const server = await bleDevice.gatt.connect();
             const service = await server.getPrimaryService(serviceUUID);
             bleCharacteristic = await service.getCharacteristic(characteristicUUID);
-
             await bleCharacteristic.startNotifications();
             bleCharacteristic.addEventListener('characteristicvaluechanged', handleNotifications);
-            
             setButtonLoading(connectBtn, false);
             connectBtn.textContent = 'Disconnect';
             statusDiv.textContent = `Connected to ${bleDevice.name || 'device'}`;
             statusDiv.className = 'text-center mt-2 font-semibold text-green-500';
-
             await sendCurrentTime();
             if (timeSyncInterval) clearInterval(timeSyncInterval);
             timeSyncInterval = setInterval(sendCurrentTime, 60000);
-
             connectBtn.removeEventListener('click', onConnectButtonClick);
             connectBtn.addEventListener('click', onDisconnectButtonClick);
-
         } catch (error) {
             console.error('Connection failed:', error);
-            // --- FIX: Provide a more helpful and specific error message for permissions issues ---
             let userMessage = `Connection failed: ${error.message}`;
             if (error.name === 'SecurityError' || error.name === 'NotAllowedError') {
                 userMessage = 'Bluetooth access denied. This can be due to browser settings, a missing user gesture (click), or a security policy on the page. Please grant permission when prompted and ensure you are using a compatible browser like Chrome.';
@@ -218,11 +197,9 @@
         bleDevice = null;
         bleCharacteristic = null;
         if(timeSyncInterval) clearInterval(timeSyncInterval);
-        
         connectBtn.textContent = 'Connect to Device';
         statusDiv.textContent = 'Disconnected';
         statusDiv.className = 'text-center mt-2 font-semibold text-red-500';
-        
         connectBtn.removeEventListener('click', onDisconnectButtonClick);
         connectBtn.addEventListener('click', onConnectButtonClick);
     }
@@ -230,8 +207,6 @@
     function handleNotifications(event) {
         const decoder = new TextDecoder();
         const data = decoder.decode(event.target.value).trim();
-        console.log(`Received: ${data}`);
-        
         if (data.startsWith('INFO:') || data.startsWith('ERROR:') || data.startsWith('ALERT:')) {
             const parts = data.split('|');
             const type = parts[0].substring(0, parts[0].indexOf(':')).toLowerCase();
@@ -245,13 +220,11 @@
             addNotification('Cannot send command: Not connected.', 'error');
             return;
         }
-
         let command = action;
         if (value !== null) {
             command += `:${value}`;
         }
         command += '\n';
-
         try {
             const encoder = new TextEncoder();
             await bleCharacteristic.writeValue(encoder.encode(command));
@@ -262,19 +235,15 @@
         }
     }
 
-    // --- Application Logic ---
     function onAddScheduleClick() {
         const onTime = scheduleOnTimeInput.value;
         const offTime = scheduleOffTimeInput.value;
-
         if (!onTime || !offTime) {
             addNotification('Please set both an ON and OFF time.', 'error');
             return;
         }
-
         const scheduleValue = `${onTime},${offTime}`;
         sendCommand('ADD_SCHEDULE', scheduleValue);
-
         schedules.push({ onTime, offTime, id: Date.now() });
         localStorage.setItem('vanilla_schedules_v3', JSON.stringify(schedules));
         renderSchedules();
@@ -292,13 +261,13 @@
         }
     }
 
+    // --- MODIFICATION: Send time as components, not a single timestamp ---
     async function sendCurrentTime() {
         const now = luxon.DateTime.local();
         const timeString = `${now.year},${now.month},${now.day},${now.hour},${now.minute},${Math.floor(now.second)}`;
         await sendCommand('SET_TIME', timeString);
     }
 
-    // --- UI Rendering ---
     function setButtonLoading(button, isLoading) {
         if (isLoading) {
             button.disabled = true;
@@ -310,11 +279,10 @@
     }
 
     function addNotification(message, type = 'info') {
-        const notificationsList = document.getElementById('notificationsList');
         const item = document.createElement('div');
         item.className = `notification notification-${type}`;
         item.innerHTML = `<strong>${new Date().toLocaleTimeString()}</strong> - ${message}`;
-        notificationsList.prepend(item);
+        notificationsListDiv.prepend(item);
     }
     
     function renderSchedules() {
