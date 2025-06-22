@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🔌 Vanilla 3000 Smart Energy Monitor</title>
+    <title>🔌 Vanilla 3000 (Comma-Version)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/luxon@3.x/build/global/luxon.min.js"></script>
     
@@ -64,7 +64,7 @@
             <p class="text-slate-500 dark:text-slate-400">Smart Energy Monitor & Control Panel</p>
         </header>
 
-        <div id="bluetoothWarning" class="hidden p-4 mb-4 text-sm text-red-700 bg-red-100 rounded-lg dark:bg-red-200 dark:text-red-800" role="alert">
+        <div id="bluetoothWarning" class="hidden p-4 mb-4 text-sm text-yellow-700 bg-yellow-100 rounded-lg" role="alert">
         </div>
 
         <main class="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -73,14 +73,6 @@
                     <h2 class="text-xl font-bold mb-2">📡 Connection</h2>
                     <button class="btn btn-primary w-full" id="connectBtn">Connect to Device</button>
                     <div id="status" class="text-center mt-2 font-semibold text-red-500">Disconnected</div>
-                </div>
-
-                <div class="bg-slate-100 dark:bg-slate-900/50 p-4 rounded-lg">
-                    <h2 class="text-xl font-bold mb-2">🎛️ Device Control</h2>
-                    <div class="grid grid-cols-2 gap-4">
-                        <button class="btn bg-green-500 text-white" onclick="sendCommand('ON')">Turn ON</button>
-                        <button class="btn bg-red-500 text-white" onclick="sendCommand('OFF')">Turn OFF</button>
-                    </div>
                 </div>
 
                 <div class="bg-slate-100 dark:bg-slate-900/50 p-4 rounded-lg">
@@ -113,7 +105,7 @@
 <script>
     let bleDevice = null;
     let bleCharacteristic = null;
-    let schedules = JSON.parse(localStorage.getItem('vanilla_schedules_v4') || '[]');
+    let schedules = JSON.parse(localStorage.getItem('vanilla_schedules_v5') || '[]');
     let timeSyncInterval = null;
 
     const connectBtn = document.getElementById('connectBtn');
@@ -150,15 +142,13 @@
             const serviceUUID = '0000ffe0-0000-1000-8000-00805f9b34fb';
             const characteristicUUID = '0000ffe1-0000-1000-8000-00805f9b34fb';
             bleDevice = await navigator.bluetooth.requestDevice({
-                filters: [{ services: [serviceUUID] }],
+                filters: [{ namePrefix: 'HM' }, {services: [serviceUUID]}],
                 optionalServices: [serviceUUID]
             });
             bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
             const server = await bleDevice.gatt.connect();
             const service = await server.getPrimaryService(serviceUUID);
             bleCharacteristic = await service.getCharacteristic(characteristicUUID);
-            await bleCharacteristic.startNotifications();
-            bleCharacteristic.addEventListener('characteristicvaluechanged', handleNotifications);
             
             connectBtn.textContent = 'Disconnect';
             statusDiv.textContent = `Connected to ${bleDevice.name || 'device'}`;
@@ -174,7 +164,7 @@
         } catch (error) {
             let userMessage = `Connection failed: ${error.message}`;
             if (error.name === 'SecurityError' || error.name === 'NotAllowedError') {
-                userMessage = 'Bluetooth access denied. Please grant permission when prompted and ensure you are using a compatible browser like Chrome.';
+                userMessage = 'Bluetooth access denied. Please grant permission when prompted.';
                 bluetoothWarningDiv.textContent = userMessage;
                 bluetoothWarningDiv.classList.remove('hidden');
             }
@@ -204,17 +194,6 @@
         connectBtn.removeEventListener('click', onDisconnectButtonClick);
         connectBtn.addEventListener('click', onConnectButtonClick);
     }
-    
-    function handleNotifications(event) {
-        const decoder = new TextDecoder();
-        const data = decoder.decode(event.target.value).trim();
-        if (data.startsWith('INFO:') || data.startsWith('ERROR:') || data.startsWith('ALERT:')) {
-            const parts = data.split('|');
-            const type = parts[0].substring(0, parts[0].indexOf(':')).toLowerCase();
-            const message = parts[1] || 'No message content.';
-            addNotification(message, type);
-        }
-    }
 
     async function sendCommand(action, value = null) {
         if (!bleCharacteristic) {
@@ -229,14 +208,13 @@
         try {
             const encoder = new TextEncoder();
             await bleCharacteristic.writeValue(encoder.encode(command));
-            addNotification(`Command sent: ${command.trim()}`, 'success');
+            addNotification(`Sent: ${command.trim()}`, 'success');
         } catch (error) {
             console.error('Send command failed:', error);
             addNotification(`Send failed: ${error.message}`, 'error');
         }
     }
 
-    // --- Application Logic ---
     function onAddScheduleClick() {
         const onTime = scheduleOnTimeInput.value;
         const offTime = scheduleOffTimeInput.value;
@@ -244,11 +222,12 @@
             addNotification('Please set both an ON and OFF time.', 'error');
             return;
         }
-        // --- FIX: Use a pipe "|" as a delimiter instead of a comma ---
-        const scheduleValue = `${onTime}|${offTime}`;
+        // --- FIX: Use a comma "," as a delimiter to match the Arduino code ---
+        const scheduleValue = `${onTime},${offTime}`;
         sendCommand('ADD_SCHEDULE', scheduleValue);
+
         schedules.push({ onTime, offTime, id: Date.now() });
-        localStorage.setItem('vanilla_schedules_v4', JSON.stringify(schedules));
+        localStorage.setItem('vanilla_schedules_v5', JSON.stringify(schedules));
         renderSchedules();
         scheduleOnTimeInput.value = '';
         scheduleOffTimeInput.value = '';
@@ -259,19 +238,18 @@
         if (index > -1) {
             sendCommand('DEL_SCHEDULE', index);
             schedules.splice(index, 1);
-            localStorage.setItem('vanilla_schedules_v4', JSON.stringify(schedules));
+            localStorage.setItem('vanilla_schedules_v5', JSON.stringify(schedules));
             renderSchedules();
         }
     }
 
-    // --- MODIFICATION: Send time as components, using a pipe delimiter ---
+    // --- MODIFICATION: Send time as components with a comma delimiter ---
     async function sendCurrentTime() {
         const now = luxon.DateTime.local();
-        const timeString = `${now.year}|${now.month}|${now.day}|${now.hour}|${now.minute}|${Math.floor(now.second)}`;
+        const timeString = `${now.year},${now.month},${now.day},${now.hour},${now.minute},${Math.floor(now.second)}`;
         await sendCommand('SET_TIME', timeString);
     }
 
-    // --- UI Rendering ---
     function setButtonLoading(button, isLoading) {
         button.disabled = isLoading;
         button.innerHTML = isLoading ? `<div class="spinner"></div><span>Connecting...</span>` : `Connect to Device`;
@@ -279,8 +257,9 @@
 
     function addNotification(message, type = 'info') {
         const item = document.createElement('div');
-        item.className = `notification notification-${type}`;
-        item.innerHTML = `<strong>${new Date().toLocaleTimeString()}</strong> - ${message}`;
+        const colorClass = type === 'success' ? 'text-green-400' : type === 'error' ? 'text-red-400' : 'text-blue-400';
+        item.className = colorClass;
+        item.innerHTML = `&gt; ${message}`;
         notificationsListDiv.prepend(item);
     }
     
